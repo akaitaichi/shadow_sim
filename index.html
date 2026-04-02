@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>太陽と影の動きシミュレーション（3D版）</title>
+    <style>
+        body {
+            font-family: 'Hiragino Kaku Gothic ProN', 'Meiryo', sans-serif;
+            background-color: #f0f8ff;
+            color: #333;
+            text-align: center;
+            margin: 0;
+            padding: 20px;
+        }
+        h1 {
+            font-size: 24px;
+            color: #2c3e50;
+            margin-bottom: 10px;
+        }
+        .container {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 20px;
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+        .canvas-container {
+            display: flex;
+            gap: 15px;
+            background-color: white;
+            border-radius: 10px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            padding: 15px;
+        }
+        .canvas-box {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .canvas-title {
+            font-weight: bold;
+            color: #444;
+            margin-bottom: 5px;
+            font-size: 16px;
+        }
+        canvas {
+            background-color: #fffff8;
+            border: 2px solid #ccc;
+            border-radius: 5px;
+        }
+        .controls {
+            background-color: white;
+            border-radius: 10px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            padding: 20px;
+            width: 100%;
+            display: flex;
+            justify-content: space-between;
+            gap: 20px;
+            box-sizing: border-box;
+        }
+        .control-group {
+            flex: 1;
+            background-color: #f9f9f9;
+            padding: 15px;
+            border-radius: 8px;
+            text-align: left;
+        }
+        label {
+            font-weight: bold;
+            display: block;
+            margin-bottom: 10px;
+            color: #555;
+            font-size: 16px;
+        }
+        .btn-row {
+            display: flex;
+            gap: 5px;
+        }
+        button {
+            padding: 10px;
+            font-size: 14px;
+            font-weight: bold;
+            cursor: pointer;
+            border: none;
+            border-radius: 5px;
+            transition: 0.2s;
+            flex: 1;
+        }
+        /* 季節ボタンの色 */
+        #btn-summer { background-color: #ffcccb; color: #cc0000; }
+        #btn-equinox { background-color: #ccffcc; color: #008000; }
+        #btn-winter { background-color: #cce5ff; color: #0044cc; }
+        #btn-all { background-color: #e0e0e0; color: #333; }
+        button:hover { filter: brightness(0.9); }
+        button.active { border: 3px solid #ffcc00; transform: scale(1.05); }
+        
+        #btn-play {
+            background-color: #ff9900;
+            color: white;
+            font-size: 16px;
+            width: 100%;
+            margin-top: 10px;
+        }
+        input[type="range"] {
+            width: 100%;
+            cursor: pointer;
+        }
+        .info-panel {
+            width: 100%;
+            font-size: 16px;
+            line-height: 1.5;
+            color: #555;
+            background: #fff3cd;
+            padding: 15px;
+            border-radius: 5px;
+            border-left: 5px solid #ffc107;
+            text-align: left;
+            box-sizing: border-box;
+        }
+        .highlight {
+            font-weight: bold;
+            color: #d35400;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>☀️ 太陽と影の動きシミュレーション（光の通り道）</h1>
+
+    <div class="container">
+        <div class="canvas-container">
+            <div class="canvas-box">
+                <div class="canvas-title">① 空と光のようす（立体）</div>
+                <canvas id="canvas3D" width="400" height="400"></canvas>
+            </div>
+            <div class="canvas-box">
+                <div class="canvas-title">② 地面のようす（真上から）</div>
+                <canvas id="canvas2D" width="400" height="400"></canvas>
+            </div>
+        </div>
+
+        <div class="controls">
+            <div class="control-group">
+                <label>きせつをえらぼう</label>
+                <div class="btn-row">
+                    <button id="btn-summer" onclick="setSeason('summer')">夏至</button>
+                    <button id="btn-equinox" class="active" onclick="setSeason('equinox')">春分・秋分</button>
+                    <button id="btn-winter" onclick="setSeason('winter')">冬至</button>
+                    <button id="btn-all" onclick="setSeason('all')">ぜんぶ</button>
+                </div>
+            </div>
+
+            <div class="control-group">
+                <label>時間を動かそう</label>
+                <input type="range" id="timeSlider" min="0" max="100" value="50" oninput="updateTime()">
+                <div style="display: flex; justify-content: space-between; font-size: 12px; color: #777;">
+                    <span>朝（日の出）</span>
+                    <span>昼（南中）</span>
+                    <span>夕方（日の入り）</span>
+                </div>
+                <button id="btn-play" onclick="togglePlay()">▶ 自動で動かす</button>
+            </div>
+        </div>
+
+        <div class="info-panel" id="messageBox">
+            </div>
+    </div>
+
+    <script>
+        const canvas2D = document.getElementById("canvas2D");
+        const ctx2 = canvas2D.getContext("2d");
+        const canvas3D = document.getElementById("canvas3D");
+        const ctx3 = canvas3D.getContext("2d");
+        const slider = document.getElementById("timeSlider");
+        const messageBox = document.getElementById("messageBox");
+        const btnPlay = document.getElementById("btn-play");
+
+        // 定数
+        const LATITUDE = 35 * Math.PI / 180; // 北緯35度
+        const TILT = 23.4 * Math.PI / 180;   // 地球の傾き
+        const STICK_HEIGHT = 40;             // 棒の高さ（共通）
+        const R_DOME = 160;                  // 3Dの空（太陽の距離）の半径
+
+        const SEASONS = {
+            summer: { delta: TILT, color: "#cc0000", name: "夏至", 
+                msg: "【夏至】太陽の通り道と棒を結ぶ光が<span class='highlight'>「円すい（メガホン）」の形</span>になります。だから地面にできる影の先は、棒の近くを曲がる<span class='highlight'>「曲線」</span>を描きます。" },
+            equinox: { delta: 0, color: "#008000", name: "春分・秋分", 
+                msg: "【春分・秋分】太陽が真東から出て真西に沈みます。光の通り道が<span class='highlight'>「平らな板」</span>のようになるため、地面の影はまっすぐな<span class='highlight'>「直線」</span>になります。" },
+            winter: { delta: -TILT, color: "#0044cc", name: "冬至", 
+                msg: "【冬至】夏と同じく光が<span class='highlight'>「円すい」の形</span>になりますが、太陽が低いため、棒から遠いところを曲がる大きな<span class='highlight'>「曲線」</span>を描きます。" }
+        };
+
+        let currentSeason = 'equinox';
+        let timeProgress = 0.5;
+        let isPlaying = false;
+        let animationId;
+
+        // --- 共通の計算関数 ---
+
+        // 太陽の位置ベクトルを計算（sx:東, sy:北, sz:上）
+        function calculateSun(delta, progress) {
+            const cosH0 = -Math.tan(LATITUDE) * Math.tan(delta);
+            const H0 = Math.acos(Math.max(-1, Math.min(1, cosH0))); 
+            const H = -H0 + (2 * H0 * progress); // 時角
+
+            const sx = -Math.cos(delta) * Math.sin(H);
+            const sy = Math.cos(LATITUDE) * Math.sin(delta) - Math.sin(LATITUDE) * Math.cos(delta) * Math.cos(H);
+            const sz = Math.sin(LATITUDE) * Math.sin(delta) + Math.cos(LATITUDE) * Math.cos(delta) * Math.cos(H);
+
+            return { sx, sy, sz };
+        }
+
+        // 影の先端の座標を計算（X:東, Y:北）
+        function getShadow(sun) {
+            if (sun.sz < 0.05) return null; // 太陽が低すぎる（影が長すぎる）場合は除外
+            return {
+                X: -sun.sx * STICK_HEIGHT / sun.sz,
+                Y: -sun.sy * STICK_HEIGHT / sun.sz
+            };
+        }
+
+        // --- 3D描画用関数 ---
+
+        // 3D座標(X:東, Y:北, Z:上)を2Dキャンバス座標に変換（アイソメトリック投影風）
+        function project3D(x, y, z) {
+            // Z軸回転（南西から見下ろすように少し回転）
+            const angleZ = 30 * Math.PI / 180;
+            const x1 = x * Math.cos(angleZ) - y * Math.sin(angleZ);
+            const y1 = x * Math.sin(angleZ) + y * Math.cos(angleZ);
+
+            // X軸回転（上から見下ろす角度）
+            const angleX = 25 * Math.PI / 180;
+            const y2 = y1 * Math.cos(angleX) - z * Math.sin(angleX);
+            const z2 = y1 * Math.sin(angleX) + z * Math.cos(angleX);
+
+            return {
+                cx: 200 + x1,
+                cy: 230 - z2 // Zが上なのでマイナス
+            };
+        }
+
+        function draw3D() {
+            ctx3.clearRect(0, 0, canvas3D.width, canvas3D.height);
+
+            // 地面（円）を描画
+            ctx3.beginPath();
+            for (let i = 0; i <= 360; i += 5) {
+                const rad = i * Math.PI / 180;
+                const pt = project3D(R_DOME * Math.cos(rad), R_DOME * Math.sin(rad), 0);
+                if (i === 0) ctx3.moveTo(pt.cx, pt.cy);
+                else ctx3.lineTo(pt.cx, pt.cy);
+            }
+            ctx3.fillStyle = "#e8f4f8";
+            ctx3.fill();
+            ctx3.strokeStyle = "#b0d4e3";
+            ctx3.stroke();
+
+            // 方位線を描画
+            const ptN = project3D(0, R_DOME, 0);
+            const ptS = project3D(0, -R_DOME, 0);
+            const ptE = project3D(R_DOME, 0, 0);
+            const ptW = project3D(-R_DOME, 0, 0);
+            
+            ctx3.strokeStyle = "#ccc"; ctx3.lineWidth = 1;
+            ctx3.beginPath(); ctx3.moveTo(ptN.cx, ptN.cy); ctx3.lineTo(ptS.cx, ptS.cy); ctx3.stroke();
+            ctx3.beginPath(); ctx3.moveTo(ptE.cx, ptE.cy); ctx3.lineTo(ptW.cx, ptW.cy); ctx3.stroke();
+
+            // 方位テキスト
+            ctx3.fillStyle = "#555"; ctx3.font = "12px sans-serif";
+            ctx3.fillText("北", ptN.cx - 5, ptN.cy - 5);
+            ctx3.fillText("南", ptS.cx - 5, ptS.cy + 15);
+            ctx3.fillText("東", ptE.cx + 5, ptE.cy);
+            ctx3.fillText("西", ptW.cx - 15, ptW.cy);
+
+            // 季節ごとの描画処理
+            if (currentSeason === 'all') {
+                ['winter', 'equinox', 'summer'].forEach(s => draw3DSeason(s, true));
+            } else {
+                draw3DSeason(currentSeason, true);
+            }
+
+            // 棒の描画
+            const ptStickTop = project3D(0, 0, STICK_HEIGHT);
+            const ptStickBase = project3D(0, 0, 0);
+            ctx3.beginPath();
+            ctx3.moveTo(ptStickBase.cx, ptStickBase.cy);
+            ctx3.lineTo(ptStickTop.cx, ptStickTop.cy);
+            ctx3.strokeStyle = "#8b4513";
+            ctx3.lineWidth = 4;
+            ctx3.stroke();
+        }
+
+        function draw3DSeason(seasonKey, drawCurrent) {
+            const season = SEASONS[seasonKey];
+            const delta = season.delta;
+            
+            // --- 1. 光の面（なぜ直線/曲線になるのか）を描画 ---
+            if (drawCurrent) {
+                ctx3.beginPath();
+                for (let p = 0.05; p <= 0.95; p += 0.05) {
+                    const sun = calculateSun(delta, p);
+                    const sh = getShadow(sun);
+                    if (sh && Math.hypot(sh.X, sh.Y) < R_DOME) {
+                        const ptSun = project3D(sun.sx * R_DOME, sun.sy * R_DOME, sun.sz * R_DOME);
+                        const ptSh = project3D(sh.X, sh.Y, 0);
+                        const ptStick = project3D(0, 0, STICK_HEIGHT);
+                        
+                        // 太陽から棒の先端を通って影への光の筋
+                        ctx3.moveTo(ptSun.cx, ptSun.cy);
+                        ctx3.lineTo(ptStick.cx, ptStick.cy);
+                        ctx3.lineTo(ptSh.cx, ptSh.cy);
+                    }
+                }
+                ctx3.strokeStyle = "rgba(255, 215, 0, 0.25)"; // 薄い黄色
+                ctx3.lineWidth = 1;
+                ctx3.stroke();
+            }
+
+            // --- 2. 太陽の通り道（空のアーチ） ---
+            ctx3.beginPath();
+            for (let p = 0.0; p <= 1.0; p += 0.02) {
+                const sun = calculateSun(delta, p);
+                if (sun.sz >= 0) { // 地平線より上
+                    const pt = project3D(sun.sx * R_DOME, sun.sy * R_DOME, sun.sz * R_DOME);
+                    if (p === 0.0) ctx3.moveTo(pt.cx, pt.cy);
+                    else ctx3.lineTo(pt.cx, pt.cy);
+                }
+            }
+            ctx3.strokeStyle = season.color;
+            ctx3.lineWidth = 2;
+            ctx3.stroke();
+
+            // --- 3. 影の軌跡（地面） ---
+            ctx3.beginPath();
+            for (let p = 0.05; p <= 0.95; p += 0.02) {
+                const sun = calculateSun(delta, p);
+                const sh = getShadow(sun);
+                if (sh && Math.hypot(sh.X, sh.Y) < R_DOME) {
+                    const pt = project3D(sh.X, sh.Y, 0);
+                    ctx3.lineTo(pt.cx, pt.cy);
+                }
+            }
+            ctx3.strokeStyle = season.color;
+            ctx3.setLineDash([4, 4]); // 点線
+            ctx3.stroke();
+            ctx3.setLineDash([]);
+
+            // --- 4. 現在の太陽と影 ---
+            if (drawCurrent) {
+                const cSun = calculateSun(delta, timeProgress);
+                const cSh = getShadow(cSun);
+                
+                // 太陽の描画
+                if (cSun.sz >= 0) {
+                    const ptSun = project3D(cSun.sx * R_DOME, cSun.sy * R_DOME, cSun.sz * R_DOME);
+                    ctx3.beginPath();
+                    ctx3.arc(ptSun.cx, ptSun.cy, 8, 0, Math.PI * 2);
+                    ctx3.fillStyle = "#ffcc00";
+                    ctx3.fill();
+                    ctx3.strokeStyle = "#ff9900";
+                    ctx3.lineWidth = 2;
+                    ctx3.stroke();
+
+                    // 現在の光の線（1本だけ濃く）
+                    if (cSh) {
+                        const ptStick = project3D(0, 0, STICK_HEIGHT);
+                        const ptSh = project3D(cSh.X, cSh.Y, 0);
+                        ctx3.beginPath();
+                        ctx3.moveTo(ptSun.cx, ptSun.cy);
+                        ctx3.lineTo(ptSh.cx, ptSh.cy);
+                        ctx3.strokeStyle = "rgba(255, 150, 0, 0.6)";
+                        ctx3.lineWidth = 2;
+                        ctx3.stroke();
+
+                        // 現在の影の本体
+                        const ptBase = project3D(0, 0, 0);
+                        ctx3.beginPath();
+                        ctx3.moveTo(ptBase.cx, ptBase.cy);
+                        ctx3.lineTo(ptSh.cx, ptSh.cy);
+                        ctx3.strokeStyle = "rgba(0,0,0,0.5)";
+                        ctx3.lineWidth = 4;
+                        ctx3.stroke();
+                    }
+                }
+            }
+        }
+
+        // --- 2D描画用関数 ---
+
+        function draw2D() {
+            ctx2.clearRect(0, 0, canvas2D.width, canvas2D.height);
+            const cx = 200, cy = 200;
+
+            // 十字線
+            ctx2.strokeStyle = "#dddddd"; ctx2.lineWidth = 2;
+            ctx2.beginPath();
+            ctx2.moveTo(cx, 20); ctx2.lineTo(cx, 380); // 南北
+            ctx2.moveTo(20, cy); ctx2.lineTo(380, cy); // 東西
+            ctx2.stroke();
+
+            // 方角テキスト
+            ctx2.font = "bold 14px sans-serif"; ctx2.fillStyle = "#555";
+            ctx2.textAlign = "center"; ctx2.textBaseline = "middle";
+            ctx2.fillText("北", cx, 15);
+            ctx2.fillText("南", cx, 385);
+            ctx2.fillText("東", 385, cy - 10);
+            ctx2.fillText("西", 15, cy - 10);
+
+            if (currentSeason === 'all') {
+                ['summer', 'equinox', 'winter'].forEach(s => draw2DSeason(s, cx, cy, timeProgress));
+            } else {
+                draw2DSeason(currentSeason, cx, cy, timeProgress);
+            }
+
+            // 中央の棒
+            ctx2.beginPath();
+            ctx2.arc(cx, cy, 5, 0, Math.PI * 2);
+            ctx2.fillStyle = "#8b4513";
+            ctx2.fill();
+        }
+
+        function draw2DSeason(seasonKey, cx, cy, currentProgress) {
+            const season = SEASONS[seasonKey];
+            const delta = season.delta;
+            
+            ctx2.beginPath();
+            ctx2.strokeStyle = season.color;
+            ctx2.lineWidth = 3;
+            ctx2.setLineDash([5, 5]);
+            
+            let currentShadowX = null, currentShadowY = null;
+
+            for (let p = 0.01; p <= 0.99; p += 0.01) {
+                const sun = calculateSun(delta, p);
+                const sh = getShadow(sun);
+                if (!sh) continue;
+
+                // 2Dキャンバス上での座標 (X:東->右, Y:北->上なので引き算)
+                const px = cx + sh.X;
+                const py = cy - sh.Y;
+
+                if (p === 0.01 || p === 0.02) ctx2.moveTo(px, py);
+                else ctx2.lineTo(px, py);
+
+                if (p >= currentProgress && currentShadowX === null) {
+                    currentShadowX = px; currentShadowY = py;
+                }
+            }
+            ctx2.stroke();
+            ctx2.setLineDash([]);
+
+            if (currentShadowX !== null) {
+                // 影の本体
+                ctx2.beginPath();
+                ctx2.moveTo(cx, cy);
+                ctx2.lineTo(currentShadowX, currentShadowY);
+                ctx2.strokeStyle = "rgba(0, 0, 0, 0.4)";
+                ctx2.lineWidth = 6;
+                ctx2.lineCap = "round";
+                ctx2.stroke();
+
+                // 影の先端
+                ctx2.beginPath();
+                ctx2.arc(currentShadowX, currentShadowY, 5, 0, Math.PI * 2);
+                ctx2.fillStyle = season.color;
+                ctx2.fill();
+            }
+        }
+
+        // --- コントロール処理 ---
+
+        function setSeason(season) {
+            currentSeason = season;
+            document.querySelectorAll('.btn-row button').forEach(btn => btn.classList.remove('active'));
+            document.getElementById('btn-' + season).classList.add('active');
+            
+            if (season === 'all') {
+                messageBox.innerHTML = "【ぜんぶを比較】太陽の通り道が違うと、光の形（円すいや板）が変わるため、地面の影のカーブも大きく変わることがわかります。";
+            } else {
+                messageBox.innerHTML = SEASONS[season].msg;
+            }
+            updateDraw();
+        }
+
+        function updateTime() {
+            timeProgress = slider.value / 100;
+            updateDraw();
+        }
+
+        function updateDraw() {
+            draw3D();
+            draw2D();
+        }
+
+        function animate() {
+            if (isPlaying) {
+                timeProgress += 0.003;
+                if (timeProgress > 1) timeProgress = 0;
+                slider.value = timeProgress * 100;
+                updateDraw();
+                animationId = requestAnimationFrame(animate);
+            }
+        }
+
+        function togglePlay() {
+            isPlaying = !isPlaying;
+            if (isPlaying) {
+                btnPlay.innerHTML = "⏸ 止める";
+                btnPlay.style.backgroundColor = "#e74c3c";
+                animate();
+            } else {
+                btnPlay.innerHTML = "▶ 自動で動かす";
+                btnPlay.style.backgroundColor = "#ff9900";
+                cancelAnimationFrame(animationId);
+            }
+        }
+
+        // 初期化
+        setSeason('equinox');
+    </script>
+</body>
+</html>
